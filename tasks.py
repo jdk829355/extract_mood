@@ -8,11 +8,12 @@ from collections import Counter
 import io
 from dotenv import load_dotenv
 
-# .env 파일에서 환경 변수 로드
+# 환경변수 세팅하는 부분
 load_dotenv()
 API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# --- 사진 다운로드 함수 (이전과 동일) ---
+# 사진 한 장 다운로드 하는 함수
+# 얘를 이용해서 병렬처리 할 겨
 async def fetch_photo(session: aiohttp.ClientSession, name: str) -> Image.Image | None:
     media_url = f"https://places.googleapis.com/v1/{name}/media?key={API_KEY}&maxHeightPx=400&skipHttpRedirect=true"
     try:
@@ -27,24 +28,36 @@ async def fetch_photo(session: aiohttp.ClientSession, name: str) -> Image.Image 
                 return Image.open(io.BytesIO(image_bytes))
     except aiohttp.ClientError: return None
 
+# 장소 id를 기반으로 모든 사진을 불러서 pil 이미지 리스트로 반환함
 async def fetch_all_photos(place_id: str) -> list[Image.Image]:
+    # 우선 장소 세부정보를 불러와서 사진 이름들을 받아줌
     details_url = f"https://places.googleapis.com/v1/places/{place_id}"
     headers = {'Content-Type': 'application/json', 'X-Goog-Api-Key': API_KEY, 'X-Goog-FieldMask': 'photos'}
+
+    # 개별 사진 요청의 결과들이 담길 리스트
     image_results: list[Image.Image] = []
+
+    # 장소 상세정보 불러오기
     async with aiohttp.ClientSession() as session:
         async with session.get(url=details_url, headers=headers) as response:
             if response.status != 200: return image_results
             data = await response.json()
-
+        
+        # 사진이 없는 공간이면 걍 빈 리스트 반환
         if not data.get('photos'): return image_results
+        # name 필드만 추출해서 리스트로 만들기
         photo_names = [photo['name'] for photo in data['photos']]
+        # 병렬처리를 위한 task 리스트
         tasks = [fetch_photo(session, name) for name in photo_names]
+        # 한번에 실행
         downloaded_images = await asyncio.gather(*tasks)
+        # 다운에 실패하면 None이기 때문에 None인 값을 걸러서 저장
         image_results = [img for img in downloaded_images if img]
     print(f"총 {len(image_results)}개의 유효한 사진을 다운로드했습니다.")
     return image_results
 
-# --- 리팩토링된 핵심 분석 유틸리티 함수 ---
+# 레이블과 사진 리스트를 받아서 분류해줌
+# clip 모델 사용
 def get_best_labels_for_photos(
     photos: list[Image.Image],
     labels: list[str],
@@ -80,10 +93,13 @@ def get_best_labels_for_photos(
         # 인덱스를 실제 레이블 텍스트로 변환하여 반환
         return [labels[i] for i in best_match_indices]
 
-# --- 새로운 유틸리티 함수를 사용하는 간결해진 함수들 ---
+# 공간 사진만 분류해줌
+# 사진 리스트 -> 사진 리스트
 def filter_spatial_photos(photos: list[Image.Image], model, preprocess, device: str) -> list[Image.Image]:
     print("\n[1단계] 공간 사진 필터링을 시작합니다...")
+    # 사진이 이 카테고리면 괜찮은 거임
     positive_labels = ["interior", "exterior", "wide shot", "seating area"]
+    # 이 카테고리면 안됨, 나쁜 사진임
     negative_labels = ["food", "drink", "person", "menu"]
     
     # 원본 사진과 해당 사진의 종류(긍정/부정)를 매칭
@@ -104,20 +120,17 @@ def analyze_place_atmosphere(photos: list[Image.Image], labels: list[str], model
     # 각 사진의 최고 분위기 레이블을 카운트하여 반환
     return Counter(best_labels)
 
-async def main():
-    # --- 설정 부분 (이전과 동일) ---
-    place_id = "ChIJPyUeoeiifDURWsRVI6DoUow"
+async def extract_atmosphere_from_place(place_id:str):
     mood_labels_en = [
         "Quiet", "Cozy", "Aesthetic", "Lively", "Spacious",
-        "Nature-Inspired", "Conceptual", "Trendy", "Modern"
+        "Nature-Inspired", "Conceptual", "Trendy"
     ]
     mood_tags_kr = {
         "Quiet": "조용한", "Cozy": "아늑한", "Aesthetic": "감성적인", "Lively": "활기찬",
-        "Spacious": "넓고 개방적인", "Nature-Inspired": "자연 친화적인", "Conceptual": "컨셉 있는",
-        "Trendy": "트렌디한", "Modern": "현대적인"
+        "Spacious": "개방적인", "Nature-Inspired": "자연 친화적인", "Conceptual": "컨셉 있는",
+        "Trendy": "트렌디한"
     }
 
-    # --- 실행 부분 ---
     # 1. 사진 다운로드
     all_photos = await fetch_all_photos(place_id)
     if not all_photos: return
@@ -147,10 +160,14 @@ async def main():
         print(f"- {mood_tags_kr[label]}: {count}표 ({percentage:.1f}%)")
     return res
 
+def extract_and_upload(place_id: str):
+    result = asyncio.run(extract_atmosphere_from_place(place_id))
+    # 나중에 supabase 업로드 코드 넣을거임
+    return result
 
 if __name__ == "__main__":
     # .env 파일이 없거나 API_KEY가 설정되지 않은 경우를 위한 확인
     if not API_KEY:
         print("'.env' 파일에 GOOGLE_API_KEY를 설정해주세요.")
     else:
-        asyncio.run(main())
+        asyncio.run(extract_atmosphere_from_place("ChIJPyUeoeiifDURWsRVI6DoUow"))
