@@ -4,7 +4,7 @@ from redis import Redis
 from rq import Queue
 
 # 작업 함수 import
-from tasks import extract_atmosphere_from_place
+from tasks import extract_and_upload
 
 # FastAPI 앱 생성
 app = FastAPI()
@@ -26,7 +26,7 @@ def create_analysis_job(request: JobRequest):
     place_id를 받아 분석 작업을 RQ 큐에 추가하는 API 엔드포인트
     """
     try:
-        job = q.enqueue(extract_atmosphere_from_place, request.place_id, result_ttl=3600)
+        job = q.enqueue(extract_and_upload, request.place_id, result_ttl=3600)
         
         # 클라이언트에게 Job ID와 상태를 응답합니다.
         return {"job_id": job.id, "status": "queued"}

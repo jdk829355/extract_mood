@@ -8,7 +8,7 @@ queue = Queue(connection=Redis())
 
 if __name__ == "__main__":
     ids = [
-        'ChIJuyF0EfCifDURIpcmFHvtiII'
+        'ChIJz54Qz4JoZjURT9koiME9MyE'
     ]
     
     jobs = [queue.enqueue(tasks.extract_and_upload, place_id) for place_id in ids]
