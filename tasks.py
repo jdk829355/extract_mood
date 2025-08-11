@@ -10,33 +10,27 @@ from dotenv import load_dotenv
 import os
 from supabase import create_client, Client
 
+load_dotenv()
 
-
+print("Loading CLIP model...")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL, PREPROCESS = clip.load("ViT-B/32", device=DEVICE)
+print(f"Model loaded on: {DEVICE}")
 
 class AtmosphereProcessor:
     def __init__(self):
         self._load_env_vars()
         self._init_clients()
-        self._load_model()
         self._load_tag_mappings()
     
-
     def _load_env_vars(self):
-        load_dotenv()
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_KEY")
         if not all([self.google_api_key, self.supabase_url, self.supabase_key]):
             raise ValueError("필수 환경 변수가 .env 파일에 설정되지 않았습니다.")
-        
     def _init_clients(self):
         self.supabase: Client = create_client(self.supabase_url, self.supabase_key) # pyright: ignore[reportArgumentType]
-
-    def _load_model(self):
-        print("Loading CLIP model...")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
-        print(f"Model loaded on: {self.device}")
 
     def _load_tag_mappings(self):
         print("Syncing mood tag info from DB...")
@@ -51,9 +45,9 @@ class AtmosphereProcessor:
     
     def _get_best_labels(self, photos, labels):
         if not photos or not labels: return []
-        text_inputs=clip.tokenize(labels).to(self.device);image_inputs=torch.stack([self.preprocess(p) for p in photos]).to(self.device)
+        text_inputs=clip.tokenize(labels).to(DEVICE);image_inputs=torch.stack([PREPROCESS(p) for p in photos]).to(DEVICE)
         with torch.no_grad():
-            image_features=self.model.encode_image(image_inputs);text_features=self.model.encode_text(text_inputs)
+            image_features=MODEL.encode_image(image_inputs);text_features=MODEL.encode_text(text_inputs)
             image_features/=image_features.norm(dim=-1,keepdim=True);text_features/=text_features.norm(dim=-1,keepdim=True)
             similarity=(100.0*image_features@text_features.T).softmax(dim=-1);best_match_indices=similarity.argmax(dim=1).cpu().numpy()
             return[labels[i].strip() for i in best_match_indices]
@@ -115,13 +109,13 @@ class AtmosphereProcessor:
             return []
 
         # 텍스트와 이미지를 배치로 처리
-        text_inputs = clip.tokenize(labels).to(self.device)
-        image_inputs = torch.stack([self.preprocess(p) for p in photos]).to(self.device) # pyright: ignore[reportArgumentType]
+        text_inputs = clip.tokenize(labels).to(DEVICE)
+        image_inputs = torch.stack([PREPROCESS(p) for p in photos]).to(DEVICE) # pyright: ignore[reportArgumentType]
 
         with torch.no_grad():
             # 인코딩도 한 번에 수행
-            image_features = self.model.encode_image(image_inputs)
-            text_features = self.model.encode_text(text_inputs)
+            image_features = MODEL.encode_image(image_inputs)
+            text_features = MODEL.encode_text(text_inputs)
 
             # 정규화
             image_features /= image_features.norm(dim=-1, keepdim=True)
