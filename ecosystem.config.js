@@ -12,12 +12,12 @@ module.exports = {
   {
     name: "rq",
     script:"rq",
-    args: "worker -b",
+    args: "worker",
     interpreter: "./venv/bin/python",
     watch  : false,
     autorestart: true,
     env: {
-      "OBJC_DISABLE_INITIALIZE_FORK_SAFETY": "YES" // macOS용 환경 변수
+      "OBJC_DISABLE_INITIALIZE_FORK_SAFETY": "YES", // macOS용 환경 변수
     }
   }
 ]
