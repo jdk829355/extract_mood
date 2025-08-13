@@ -1,12 +1,7 @@
 import asyncio
 import aiohttp
 import os
-from PIL import Image
 import requests
-import torch
-import clip
-from collections import Counter
-import io
 from dotenv import load_dotenv
 import os
 from supabase import create_client, Client
@@ -14,10 +9,11 @@ from supabase import create_client, Client
 load_dotenv()
 
 class AtmosphereProcessor:
-    def __init__(self):
+    def __init__(self, place_id):
         self._load_env_vars()
         self._init_clients()
         self._load_tag_mappings()
+        self.supabase.table('spaces').update({'mood_tag_status': 'in-progress'}).eq('id', place_id).execute()
     
     def _load_env_vars(self):
         self.google_api_key = os.getenv("GOOGLE_API_KEY")
@@ -66,7 +62,9 @@ class AtmosphereProcessor:
         if inference_response.status_code != 200: return
         inference_response = inference_response.json()
         res = inference_response.get('data')
-        if not res: return  
+        if not res:
+            self.supabase.table('spaces').update({'mood_tag_status': 'no-tag'}).eq('id', place_id).execute()
+            return  
         res = [x.strip() for x in res]
         
 
@@ -75,8 +73,9 @@ class AtmosphereProcessor:
         .upsert([{"mood_tag_id":self.tag_to_id[x], "space_id":place_id} for x in res])
         .execute()
         )
+        self.supabase.table('spaces').update({'mood_tag_status': 'exist'}).eq('id', place_id).execute()
         return res
 
 def extract_and_upload(place_id: str):
-    asyncio.run(AtmosphereProcessor().run_pipeline(place_id))
+    asyncio.run(AtmosphereProcessor(place_id).run_pipeline(place_id))
     return

@@ -45,6 +45,7 @@ class AtmosphereProcessor:
         self._load_env_vars()
         self._init_clients()
         self._load_tag_mappings()
+
     
 
     def _load_env_vars(self):
@@ -186,12 +187,16 @@ def create_analysis_job(request: JobRequest):
     """
     try:
         job = q.enqueue(extract_and_upload, request.place_id, result_ttl=3600)
+        supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY")) # pyright: ignore[reportArgumentType]
+        supabase.table('spaces').update({'mood_tag_status': 'queued'}).eq('id', request.place_id).execute()
         
         # 클라이언트에게 Job ID와 상태를 응답합니다.
         return {"job_id": job.id, "status": "queued"}
     except Exception as e:
         # Redis 연결 실패 등 예외 발생 시 에러 응답
         raise HTTPException(status_code=500, detail=str(e))
+    
+
     
 @app.post("/tasks/analyze_atmosphere")
 async def analyze_atmosphere(request: AtmosphereRequest):
