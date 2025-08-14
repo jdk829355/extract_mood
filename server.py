@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     # 제로샷 분류 파이프라인 로드
     print("제로샷 분류 파이프라인을 로딩합니다...")
     server_state['classifier'] = pipeline("zero-shot-classification", 
-                        model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33")
+                        model="facebook/bart-large-mnli")
     print("제로샷 분류 파이프라인 로딩 완료.")
 
     yield
