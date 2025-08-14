@@ -34,6 +34,8 @@ server_state= {}
 async def lifespan(app: FastAPI):
     print("--- 서버 시작: 리소스를 로딩합니다. ---")
     load_dotenv()
+    server_state["deepl_key"] = os.getenv("DEEPL_KEY")
+    server_state["deepl_client"] = deepl.DeepLClient(server_state["deepl_key"]) # type: ignore
     # 1. RQ 큐 연결
     redis_conn = Redis()
     server_state["rq_queue"] = Queue(connection=redis_conn)
@@ -199,8 +201,8 @@ class BackgroundPicker:
     
         
     def _get_best_photo_for_title(self, title:str):
-        deepl_client = deepl.DeepLClient(self.deepl_key) # type: ignore
-        title = deepl_client.translate_text(title, target_lang="EN-US").text # type: ignore
+        
+        title = server_state["deepl_client"].translate_text(title, target_lang="EN-US").text # type: ignore
 
         category_res = self.supabase.table('wallpaper_category').select('*').execute()
         category = [x['category'] for x in category_res.data]
