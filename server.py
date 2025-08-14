@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     # 제로샷 분류 파이프라인 로드
     print("제로샷 분류 파이프라인을 로딩합니다...")
     server_state['classifier'] = pipeline("zero-shot-classification", 
-                        model="facebook/bart-large-mnli")
+                        model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33")
     print("제로샷 분류 파이프라인 로딩 완료.")
 
     yield
@@ -197,7 +197,7 @@ class BackgroundPicker:
 
         # 분류 실행
         result = server_state['classifier'](title, category)
-        print(f"분류 결과: {result['labels'][0]}, {result['scores'][0]}")
+        print(f"분류 결과: {result['labels'][0:2]}, {result['scores'][0:2]}")
         
 
         path = ""
