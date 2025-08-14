@@ -3,10 +3,10 @@
 배경 추천만 활성화
 """
 
-
 # import asyncio
 # from collections import Counter
 # import aiohttp
+import asyncio
 import clip
 import deepl
 from dotenv import load_dotenv
@@ -22,6 +22,8 @@ import os
 from contextlib import asynccontextmanager
 import random
 from transformers import pipeline
+from huggingface_hub import InferenceClient
+
 
 # 작업 함수 import
 # from tasks import extract_and_upload
@@ -47,11 +49,17 @@ async def lifespan(app: FastAPI):
     # print(f"CLIP 모델 로딩 완료. Device: {device}")
 
     # 제로샷 분류 파이프라인 로드
-    print("제로샷 분류 파이프라인을 로딩합니다...")
-    server_state['classifier'] = pipeline("zero-shot-classification", 
-                        model="facebook/bart-large-mnli")
-    print("제로샷 분류 파이프라인 로딩 완료.")
-
+    # print("제로샷 분류 파이프라인을 로딩합니다...")
+    # server_state['classifier'] = pipeline("zero-shot-classification", 
+    #                     model="MoritzLaurer/deberta-v3-large-zeroshot-v1.1-all-33")
+    # print("제로샷 분류 파이프라인 로딩 완료.")
+    print("inference 클라이언트 초기화")
+    server_state["hf_inference_client"] = InferenceClient(
+        model="joeddav/xlm-roberta-large-xnli",
+        token=os.getenv("HF_KEY")
+    )
+    print("inference 클라이언트 초기화 완료")
+    
     yield
     print("--- 서버 종료: 리소스를 해제합니다. ---")
     server_state.clear()
@@ -182,12 +190,14 @@ class BackgroundPicker:
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_KEY")
         self.deepl_key = os.getenv("DEEPL_KEY")
+
         if not all([self.supabase_url, self.supabase_key]):
             raise ValueError
         
     def _init_clients(self):
         self.supabase: Client = create_client(self.supabase_url, self.supabase_key) # pyright: ignore[reportArgumentType]
     
+        
     def _get_best_photo_for_title(self, title:str):
         deepl_client = deepl.DeepLClient(self.deepl_key) # type: ignore
         title = deepl_client.translate_text(title, target_lang="EN-US").text # type: ignore
@@ -196,12 +206,16 @@ class BackgroundPicker:
         category = [x['category'] for x in category_res.data]
 
         # 분류 실행
-        result = server_state['classifier'](title, category)
-        print(f"분류 결과: {result['labels'][0:2]}, {result['scores'][0:2]}")
+        # result = server_state['classifier'](title, category)
+        result = server_state['hf_inference_client'].zero_shot_classification(
+            text=title, 
+            candidate_labels=category)
+            
+        print(f"분류 결과: {result[0]}")
         
 
         path = ""
-        if(result['scores'][0] < 0.3):
+        if(result[0].score < 0.4):
             general_images = self.supabase.storage.from_('wallpaper').list(
                 "general",{
                     "limit": 100,
@@ -209,9 +223,9 @@ class BackgroundPicker:
                     "sortBy": {"column": "name", "order": "desc"},
             })
             # 랜덤으로 하나 뽑음
-            path =  random.sample(['general/'+x['name'] for x in general_images], 1)[0]
+            path = random.sample(['general/'+x['name'] for x in general_images], 1)[0]
         else:
-            category_images = self.supabase.table('study_wallpaper').select('*').eq('category', result['labels'][0]).execute()
+            category_images = self.supabase.table('study_wallpaper').select('*').eq('category', result[0].label).execute()
             path = random.sample(category_images.data, 1)[0]['path']
 
         response = (self.supabase.storage
