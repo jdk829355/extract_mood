@@ -9,16 +9,16 @@ module.exports = {
       "OBJC_DISABLE_INITIALIZE_FORK_SAFETY": "YES"
     }
   },
-  {
-    name: "rq",
-    script:"rq",
-    args: "worker",
-    interpreter: "./venv/bin/python",
-    watch  : false,
-    autorestart: true,
-    env: {
-      "OBJC_DISABLE_INITIALIZE_FORK_SAFETY": "YES", // macOS용 환경 변수
-    }
-  }
+  // {
+  //   name: "rq",
+  //   script:"rq",
+  //   args: "worker",
+  //   interpreter: "./venv/bin/python",
+  //   watch  : false,
+  //   autorestart: true,
+  //   env: {
+  //     "OBJC_DISABLE_INITIALIZE_FORK_SAFETY": "YES", // macOS용 환경 변수
+  //   }
+  // }
 ]
 };
