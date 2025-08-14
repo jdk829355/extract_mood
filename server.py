@@ -21,9 +21,10 @@ import torch
 import os
 from contextlib import asynccontextmanager
 import random
+from transformers import pipeline
 
 # 작업 함수 import
-from tasks import extract_and_upload
+# from tasks import extract_and_upload
 
 server_state= {}
 
@@ -36,14 +37,20 @@ async def lifespan(app: FastAPI):
     server_state["rq_queue"] = Queue(connection=redis_conn)
     print("RQ 큐 연결 완료.")
     
-    # 2. CLIP 모델 로딩 (가장 오래 걸리는 작업)
-    print("CLIP 모델을 로딩합니다...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, preprocess = clip.load("ViT-B/32", device=device)
-    server_state["clip_model"] = model
-    server_state["clip_preprocess"] = preprocess
-    server_state["device"] = device
-    print(f"CLIP 모델 로딩 완료. Device: {device}")
+    # # 2. CLIP 모델 로딩 (가장 오래 걸리는 작업)
+    # print("CLIP 모델을 로딩합니다...")
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    # model, preprocess = clip.load("RN101", device=device)
+    # server_state["clip_model"] = model
+    # server_state["clip_preprocess"] = preprocess
+    # server_state["device"] = device
+    # print(f"CLIP 모델 로딩 완료. Device: {device}")
+
+    # 제로샷 분류 파이프라인 로드
+    print("제로샷 분류 파이프라인을 로딩합니다...")
+    server_state['classifier'] = pipeline("zero-shot-classification", 
+                        model="facebook/bart-large-mnli")
+    print("제로샷 분류 파이프라인 로딩 완료.")
 
     yield
     print("--- 서버 종료: 리소스를 해제합니다. ---")
@@ -185,20 +192,16 @@ class BackgroundPicker:
         deepl_client = deepl.DeepLClient(self.deepl_key) # type: ignore
         title = deepl_client.translate_text(title, target_lang="EN-US").text # type: ignore
 
-        query_input = clip.tokenize(title).to(server_state["device"])
-        with torch.no_grad():
-            text_features = server_state["clip_model"].encode_text(query_input)
-            text_features /= text_features.norm(dim=-1, keepdim=True)
-            text_features = text_features.tolist()[0]
+        category_res = self.supabase.table('wallpaper_category').select('*').execute()
+        category = [x['category'] for x in category_res.data]
+
+        # 분류 실행
+        result = server_state['classifier'](title, category)
+        print(f"분류 결과: {result['labels'][0]}, {result['scores'][0]}")
         
-        response = self.supabase.rpc('match_images', {
-            "query_embedding": text_features,
-            "match_threshold": 0.85,
-            "match_count":3
-        }).execute()
 
         path = ""
-        if(len(response.data) == 0):
+        if(result['scores'][0] < 0.3):
             general_images = self.supabase.storage.from_('wallpaper').list(
                 "general",{
                     "limit": 100,
@@ -207,8 +210,9 @@ class BackgroundPicker:
             })
             # 랜덤으로 하나 뽑음
             path =  random.sample(['general/'+x['name'] for x in general_images], 1)[0]
-        else: 
-            path = random.sample(response.data, 1)[0]['path']
+        else:
+            category_images = self.supabase.table('study_wallpaper').select('*').eq('category', result['labels'][0]).execute()
+            path = random.sample(category_images.data, 1)[0]['path']
 
         response = (self.supabase.storage
         .from_("wallpaper")
